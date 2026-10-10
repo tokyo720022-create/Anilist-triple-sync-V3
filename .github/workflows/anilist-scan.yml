@@ -54,14 +54,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .sync-state
+          mkdir -p sync-state
           found=false
           # Earlier successful runs may belong to the count-only scanner and have no baseline.
           for run_id in $(gh run list --workflow anilist-scan.yml --status completed --json databaseId,conclusion --jq '.[] | select(.conclusion == "success") | .databaseId' --limit 30); do
             artifact_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" --jq '.artifacts[] | select(.name == "anilist-v3-baseline" and .expired == false) | .id' | head -n 1)"
             if [[ -n "$artifact_id" ]]; then
               echo "Restoring baseline from successful run $run_id"
-              gh run download "$run_id" --name anilist-v3-baseline --dir .sync-state
+              gh run download "$run_id" --name anilist-v3-baseline --dir sync-state
               found=true
               break
             fi
@@ -78,13 +78,13 @@ jobs:
           python -m triple_sync.cli scan-anilist \
             --username "$ANILIST_USERNAME" \
             --media-type "$MEDIA_TYPE" \
-            --state-dir .sync-state \
+            --state-dir sync-state \
             --summary-json artifacts/anilist-dry-run-summary.json
       - name: Upload minimal baseline (no titles)
         uses: actions/upload-artifact@v4
         with:
           name: anilist-v3-baseline
-          path: .sync-state/*.json
+          path: sync-state/*.json
           if-no-files-found: error
           retention-days: 90
       - name: Upload aggregate-only dry-run report

@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Collection to inspect (default: both).",
     )
     scan.add_argument(
-        "--state-dir", default=".sync-state",
+        "--state-dir", default="sync-state",
         help="Directory containing previous minimal state snapshots.",
     )
     scan.add_argument(
