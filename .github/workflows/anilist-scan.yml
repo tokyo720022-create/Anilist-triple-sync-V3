@@ -1,0 +1,64 @@
+name: AniList V3 Read-only Inventory Scan
+
+on:
+  schedule:
+    # Same 3-hour cadence as the legacy anime engine; GitHub cron is UTC.
+    - cron: "30 2,5,8,11,14,17 * * *"
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "AniList username"
+        required: false
+        default: "Orewatokyo"
+        type: string
+      media_type:
+        description: "Which list to inspect"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - both
+          - anime
+          - manga
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anilist-v3-readonly-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ANILIST_USERNAME: ${{ github.event.inputs.username || vars.ANILIST_USERNAME || 'Orewatokyo' }}
+      ANILIST_TARGET_TOKEN: ${{ secrets.ANILIST_TARGET_TOKEN }}
+      TRIPLE_SYNC_TIMEOUT: "20"
+      TRIPLE_SYNC_RETRIES: "3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Run read-only scan
+        run: |
+          set -euo pipefail
+          MEDIA_TYPE="${{ github.event.inputs.media_type || 'both' }}"
+          python -m triple_sync.cli scan-anilist \
+            --username "$ANILIST_USERNAME" \
+            --media-type "$MEDIA_TYPE" \
+            --summary-json artifacts/anilist-scan-summary.json
+      - name: Upload count-only scan summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: anilist-v3-scan-summary
+          path: artifacts/anilist-scan-summary.json
+          if-no-files-found: error
+          retention-days: 7

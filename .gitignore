@@ -12,3 +12,6 @@ venv/
 !.env.example
 state/
 *.tmp
+
+# Local scan summaries and temporary reports
+artifacts/
