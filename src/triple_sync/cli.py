@@ -7,36 +7,60 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from triple_sync.config import Settings
+from triple_sync.dry_run import build_snapshot, compare_snapshots, profile_key
 from triple_sync.http_client import HttpClient
 from triple_sync.integrations.anilist import AniListClient, AniListError
 from triple_sync.scanner import MEDIA_TYPES, scan_inventory
-from triple_sync.storage import StateError, save_json_atomic
+from triple_sync.storage import StateError, load_json, save_json_atomic
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="triple-sync")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("check-config", help="Check required configuration for full sync.")
-    scan = subparsers.add_parser("scan-anilist", help="Read-only inventory scan; no list changes.")
-    scan.add_argument(
-        "--username",
-        default=os.getenv("ANILIST_USERNAME", "Orewatokyo"),
-        help="Public AniList username (default: ANILIST_USERNAME or Orewatokyo).",
+    scan = subparsers.add_parser(
+        "scan-anilist", help="Read-only inventory scan and dry-run comparison; no list changes."
     )
     scan.add_argument(
-        "--media-type",
-        default="both",
-        choices=["anime", "manga", "both"],
+        "--username", default=os.getenv("ANILIST_USERNAME", "Orewatokyo"),
+        help="AniList username (default: ANILIST_USERNAME or Orewatokyo).",
+    )
+    scan.add_argument(
+        "--media-type", default="both", choices=["anime", "manga", "both"],
         help="Collection to inspect (default: both).",
     )
     scan.add_argument(
-        "--summary-json",
-        default="artifacts/anilist-scan-summary.json",
-        help="Where to write a count-only JSON summary (default: %(default)s).",
+        "--state-dir", default=".sync-state",
+        help="Directory containing previous minimal state snapshots.",
+    )
+    scan.add_argument(
+        "--summary-json", default="artifacts/anilist-dry-run-summary.json",
+        help="Where to write an aggregate-only JSON report.",
     )
     return parser
+
+
+def _summary_markdown(summaries: list[dict[str, Any]]) -> str:
+    lines = [
+        "## AniList V3 read-only dry-run", "",
+        "| Profile | Type | Mode | Tracked | Advanced | Rollbacks | New | Removed |", 
+        "|---|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for item in summaries:
+        diff = item["comparison"]
+        lines.append(
+            f"| {item['username']} | {item['media_type']} | {diff['mode']} | "
+            f"{diff['tracked_entries']} | {diff['progress_advanced_entries']} | "
+            f"{diff['progress_rollback_entries']} | {diff['new_entries']} | {diff['removed_entries']} |"
+        )
+    lines.extend([
+        "", "No AniList list was modified and no notifications were sent.",
+        "State snapshots exclude entries marked private, titles, and cover URLs. This is a public repository, so treat artifacts as public; set the repository private if you do not want progress/score history exposed.",
+    ])
+    return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     media_types = sorted(MEDIA_TYPES) if args.media_type == "both" else [args.media_type.upper()]
-    summaries = []
+    state_dir = Path(args.state_dir)
+    summaries: list[dict[str, Any]] = []
+    staged_snapshots: dict[Path, dict[str, Any]] = {}
     try:
         with HttpClient(
             timeout=settings.request_timeout_seconds,
@@ -62,48 +88,58 @@ def main(argv: list[str] | None = None) -> int:
             client = AniListClient(settings.anilist_token, http=http)
             for media_type in media_types:
                 inventory = scan_inventory(client, args.username, media_type)
-                summaries.append({
+                current_snapshot = build_snapshot(inventory)
+                state_path = state_dir / f"{profile_key(args.username)}-{media_type.lower()}.json"
+                previous = load_json(state_path, default=None)
+                if previous is not None and not isinstance(previous, dict):
+                    raise StateError(f"Invalid baseline in {state_path}; refusing to overwrite it")
+                comparison = compare_snapshots(previous, current_snapshot)
+                staged_snapshots[state_path] = current_snapshot
+                summary = {
                     "username": inventory["username"],
                     "media_type": inventory["media_type"],
-                    "entry_count": inventory["entry_count"],
-                    "custom_list_memberships": inventory["custom_list_memberships"],
                     "scanned_at": inventory["scanned_at"],
-                })
+                    "custom_list_memberships": inventory["custom_list_memberships"],
+                    "private_entries_excluded": current_snapshot["private_entries_excluded"],
+                    "comparison": comparison,
+                }
+                summaries.append(summary)
                 print(
-                    f"Read-only {media_type.lower()} scan: "
-                    f"{inventory['entry_count']} unique entries; "
-                    f"{inventory['custom_list_memberships']} custom-list memberships."
+                    f"Read-only {media_type.lower()} {comparison['mode']}: "
+                    f"{comparison['tracked_entries']} tracked; "
+                    f"{comparison['progress_advanced_entries']} progress increases; "
+                    f"{comparison['progress_rollback_entries']} rollbacks; "
+                    f"{comparison['new_entries']} new; {comparison['removed_entries']} removed."
                 )
-    except (AniListError, OSError, ValueError) as exc:
-        print(f"Scan failed: {exc}", file=sys.stderr)
+
+        # Only persist state after every requested media type scanned and compared successfully.
+        for path, snapshot in staged_snapshots.items():
+            save_json_atomic(path, snapshot)
+    except (AniListError, OSError, ValueError, StateError) as exc:
+        print(f"Scan/dry-run failed: {exc}", file=sys.stderr)
         return 1
 
-    # The workflow publishes only counts, never titles, scores, or progress.
     report = {
         "schema_version": 1,
-        "mode": "read-only",
+        "mode": "read-only-dry-run",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "scans": summaries,
     }
     try:
         save_json_atomic(Path(args.summary_json), report)
     except (OSError, StateError) as exc:
-        print(f"Could not write scan summary: {exc}", file=sys.stderr)
+        print(f"Could not write dry-run summary: {exc}", file=sys.stderr)
         return 1
 
     print(json.dumps(report, indent=2))
     summary_path = os.getenv("GITHUB_STEP_SUMMARY")
     if summary_path:
-        with open(summary_path, "a", encoding="utf-8") as stream:
-            stream.write("## AniList V3 read-only scan\n\n")
-            stream.write("| Profile | Type | Entries | Custom-list memberships |\n")
-            stream.write("|---|---:|---:|---:|\n")
-            for item in summaries:
-                stream.write(
-                    f"| {item['username']} | {item['media_type']} | "
-                    f"{item['entry_count']} | {item['custom_list_memberships']} |\\n"
-                )
-            stream.write("\nNo AniList list was modified. Full titles, scores, and progress were not saved to the workflow artifact.\n")
+        try:
+            with open(summary_path, "a", encoding="utf-8") as stream:
+                stream.write(_summary_markdown(summaries))
+        except OSError as exc:
+            print(f"Could not write GitHub step summary: {exc}", file=sys.stderr)
+            return 1
     return 0
 
 
