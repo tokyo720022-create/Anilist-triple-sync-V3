@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anilist-triple-sync"
+version = "3.0.0"
+description = "A modular, resilient AniList and MyAnimeList synchronization toolkit."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["requests>=2.32,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9", "pytest-cov>=6,<7", "ruff>=0.9,<1"]
+
+[project.scripts]
+triple-sync = "triple_sync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
