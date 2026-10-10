@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       username:
-        description: "AniList username"
+        description: "Source AniList username to read"
         required: false
         default: "Orewatokyo"
         type: string
@@ -35,7 +35,8 @@ jobs:
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
-      ANILIST_USERNAME: ${{ github.event.inputs.username || vars.ANILIST_USERNAME || 'Orewatokyo' }}
+      ANILIST_SOURCE_USERNAME: ${{ github.event.inputs.username || vars.ANILIST_SOURCE_USERNAME || 'Orewatokyo' }}
+      ANILIST_TARGET_USERNAME: ${{ vars.ANILIST_TARGET_USERNAME || 'Orewatokyoo' }}
       ANILIST_TARGET_TOKEN: ${{ secrets.ANILIST_TARGET_TOKEN }}
       TRIPLE_SYNC_TIMEOUT: "20"
       TRIPLE_SYNC_RETRIES: "3"
@@ -50,7 +51,7 @@ jobs:
       - name: Install project
         run: python -m pip install -e .
       - name: Verify AniList access token
-        run: python -m triple_sync.cli check-anilist-auth --expected-username "$ANILIST_USERNAME"
+        run: python -m triple_sync.cli check-anilist-auth --expected-username "$ANILIST_TARGET_USERNAME"
       - name: Locate previous baseline artifact
         id: baseline
         shell: bash
@@ -78,7 +79,7 @@ jobs:
           set -euo pipefail
           MEDIA_TYPE="${{ github.event.inputs.media_type || 'both' }}"
           python -m triple_sync.cli scan-anilist \
-            --username "$ANILIST_USERNAME" \
+            --username "$ANILIST_SOURCE_USERNAME" \
             --media-type "$MEDIA_TYPE" \
             --state-dir sync-state \
             --summary-json artifacts/anilist-dry-run-summary.json

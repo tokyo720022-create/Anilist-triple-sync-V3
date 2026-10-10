@@ -40,7 +40,8 @@ ruff check .
 
 ## Configuration
 
-- `ANILIST_USERNAME` — profile to scan (defaults to `Orewatokyo`)
+- `ANILIST_SOURCE_USERNAME` — source profile to scan (defaults to `Orewatokyo`)
+- `ANILIST_TARGET_USERNAME` — account that owns `ANILIST_TARGET_TOKEN` (defaults to `Orewatokyoo`)
 - `ANILIST_TARGET_TOKEN` — optional for public read-only scans; use a GitHub Actions secret when authenticated access is required
 - `MAL_CLIENT_ID`, `MAL_CLIENT_SECRET`, `MAL_REFRESH_TOKEN` — required later for full MAL synchronization
 - `TRIPLE_SYNC_TIMEOUT` and `TRIPLE_SYNC_RETRIES` — optional HTTP settings

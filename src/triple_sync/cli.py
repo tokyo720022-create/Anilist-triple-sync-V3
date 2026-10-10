@@ -29,15 +29,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     auth.add_argument(
         "--expected-username",
-        default=os.getenv("ANILIST_USERNAME", "Orewatokyo"),
-        help="Expected AniList account name (default: ANILIST_USERNAME or Orewatokyo).",
+        default=os.getenv("ANILIST_TARGET_USERNAME", "Orewatokyoo"),
+        help="Expected target AniList account (default: ANILIST_TARGET_USERNAME or Orewatokyoo).",
     )
     scan = subparsers.add_parser(
         "scan-anilist", help="Read-only inventory scan and dry-run comparison; no list changes."
     )
     scan.add_argument(
-        "--username", default=os.getenv("ANILIST_USERNAME", "Orewatokyo"),
-        help="AniList username (default: ANILIST_USERNAME or Orewatokyo).",
+        "--username", default=os.getenv("ANILIST_SOURCE_USERNAME", os.getenv("ANILIST_USERNAME", "Orewatokyo")),
+        help="Source AniList username (default: ANILIST_SOURCE_USERNAME or Orewatokyo).",
     )
     scan.add_argument(
         "--media-type", default="both", choices=["anime", "manga", "both"],
