@@ -49,6 +49,11 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install -e .
+      - name: Verify AniList access token
+        run: |
+          set -euo pipefail
+          python -m triple_sync.cli check-anilist-auth \\
+            --expected-username "$ANILIST_USERNAME"
       - name: Locate previous baseline artifact
         id: baseline
         shell: bash

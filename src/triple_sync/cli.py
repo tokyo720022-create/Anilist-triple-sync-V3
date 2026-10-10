@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 import sys
+
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="triple-sync")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("check-config", help="Check required configuration for full sync.")
+    auth = subparsers.add_parser(
+        "check-anilist-auth",
+        help="Verify the AniList access token using the authenticated Viewer query.",
+    )
+    auth.add_argument(
+        "--expected-username",
+        default=os.getenv("ANILIST_USERNAME", "Orewatokyo"),
+        help="Expected AniList account name (default: ANILIST_USERNAME or Orewatokyo).",
+    )
     scan = subparsers.add_parser(
         "scan-anilist", help="Read-only inventory scan and dry-run comparison; no list changes."
     )
@@ -86,6 +97,41 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(f"  - {name}" for name in missing))
             return 1
         print("Required AniList and MAL configuration is present.")
+        return 0
+
+    if args.command == "check-anilist-auth":
+        # A public profile scan can succeed without a token; this command cannot.
+        if not settings.anilist_token:
+            print("Missing ANILIST_TARGET_TOKEN; add it as a GitHub Actions secret.", file=sys.stderr)
+            return 1
+        expected = args.expected_username.strip()
+        if not expected:
+            print("Expected AniList username must not be empty.", file=sys.stderr)
+            return 1
+        try:
+            with HttpClient(
+                timeout=settings.request_timeout_seconds,
+                max_retries=settings.max_retries,
+            ) as http:
+                viewer = AniListClient(settings.anilist_token, http=http).viewer()
+        except (AniListError, requests.RequestException, OSError, ValueError) as exc:
+            print(f"AniList authentication check failed: {exc}", file=sys.stderr)
+            return 1
+
+        actual = str(viewer.get("name") or "").strip()
+        viewer_id = viewer.get("id")
+        if not actual or viewer_id is None:
+            print("AniList Viewer response did not include an account name and ID.", file=sys.stderr)
+            return 1
+        if actual.casefold() != expected.casefold():
+            print(
+                f"AniList token belongs to '{actual}' (ID {viewer_id}), "
+                f"but expected '{expected}'. No list was modified.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"AniList authentication verified: {actual} (ID {viewer_id}).")
+        print("Token value was not displayed; no AniList list was modified.")
         return 0
 
     media_types = sorted(MEDIA_TYPES) if args.media_type == "both" else [args.media_type.upper()]
