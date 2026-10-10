@@ -70,3 +70,24 @@ def test_profile_key_is_safe_and_deterministic():
     assert profile_key("a/../../bad username") == "a_bad_username"
     with pytest.raises(ValueError):
         profile_key("///")
+
+
+def test_missing_baseline_load_semantics(tmp_path):
+    from triple_sync.storage import load_json
+
+    previous = load_json(tmp_path / "no-baseline.json", default=None)
+    assert previous is None
+    current = build_snapshot(_inventory([_item(99, progress=10)]))
+    report = compare_snapshots(previous, current)
+    assert report["mode"] == "baseline"
+    assert report["progress_advanced_entries"] == 0
+
+
+def test_existing_null_baseline_is_rejected(tmp_path):
+    from triple_sync.cli import _load_previous_baseline
+    from triple_sync.storage import StateError
+
+    path = tmp_path / "baseline.json"
+    path.write_text("null", encoding="utf-8")
+    with pytest.raises(StateError, match="refusing to overwrite"):
+        _load_previous_baseline(path)

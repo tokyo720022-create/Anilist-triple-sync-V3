@@ -43,6 +43,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_previous_baseline(state_path: Path) -> dict[str, Any] | None:
+    """Return None only when the baseline file truly does not exist."""
+    if not state_path.exists():
+        return None
+    previous = load_json(state_path)
+    if not isinstance(previous, dict):
+        raise StateError(
+            f"Invalid baseline in {state_path}; refusing to overwrite it"
+        )
+    return previous
+
+
 def _summary_markdown(summaries: list[dict[str, Any]]) -> str:
     lines = [
         "## AniList V3 read-only dry-run", "",
@@ -90,9 +102,7 @@ def main(argv: list[str] | None = None) -> int:
                 inventory = scan_inventory(client, args.username, media_type)
                 current_snapshot = build_snapshot(inventory)
                 state_path = state_dir / f"{profile_key(args.username)}-{media_type.lower()}.json"
-                previous = load_json(state_path, default=None)
-                if previous is not None and not isinstance(previous, dict):
-                    raise StateError(f"Invalid baseline in {state_path}; refusing to overwrite it")
+                previous = _load_previous_baseline(state_path)
                 comparison = compare_snapshots(previous, current_snapshot)
                 staged_snapshots[state_path] = current_snapshot
                 summary = {

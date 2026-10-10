@@ -16,3 +16,12 @@ def test_corrupt_state_is_not_silently_reset(tmp_path):
     path.write_text("{broken", encoding="utf-8")
     with pytest.raises(StateError):
         load_json(path)
+
+
+def test_missing_file_explicit_none_is_preserved(tmp_path):
+    # Dry-run startup uses None to mean "no baseline yet".
+    assert load_json(tmp_path / "not-created.json", default=None) is None
+
+
+def test_missing_file_explicit_none_is_preserved(tmp_path):
+    assert load_json(tmp_path / "no-baseline.json", default=None) is None
